@@ -5,13 +5,13 @@
 This is the first known device driver for the MNT VA2000 RTG graphics card
 running under Commodore Amiga UNIX (AMIX), System V Release 4.0.
 
-This project is my first proper vibe-coding adventure: a VA2000 driver experiment for Amiga Unix, started after reading Michael Ditton’s Commodore DevCon documents and wondering the very reasonable question: *would it be possible to create drives for a "modern" Amiga RTG card?
+This project is my first proper vibe-coding adventure: a VA2000 driver experiment for Amiga Unix, started after reading Michael Ditton’s Commodore DevCon documents and wondering the very (un)reasonable question: *would it be possible to create driver for a "modern" Amiga RTG card?
 
-The motivation is not world domination, enterprise readiness, or achieving perfect enlightenment through driver development. This exists mostly out of curiosity, research, and a long-standing fascination with Amiga Unix. The goal is to explore, learn, poke things with a stick, and see how far the combination of old hardware, old Unix, modern tools, and questionable confidence can be pushed.
+The motivation is not world domination, enterprise readiness, or achieving perfect enlightenment through driver development. This exists mostly out of curiosity, research, and fascination with Amiga Unix. The goal is to explore, learn, poke things with a stick, and see how far the combination of old hardware, old Unix, modern tools, and questionable confidence can be pushed.
 
-At least in its early stages, this project builds on the groundwork laid by Klaus Burckert, especially the X11R5 package from Gateway Volume 2 and his Cirrus Logic based graphics card support package. In other words, this is not an attempt to reinvent every wheel from scratch, but rather to stand on the shoulders of previous Amiga Unix explorers and carefully attach a VA2000-shaped backpack.
+At least in its early stages, this project builds on the groundwork laid by Klaus Burckert, especially his X11R5 package from Gateway Volume 2 and his Cirrus Logic based graphics card support package. In other words, this is not an attempt to reinvent every wheel from scratch, but rather to stand on the shoulders of previous Amiga Unix explorers and carefully attach a VA2000-shaped backpack.
 
-This is very much an experimental project. Things may work, things may break, and some things may work only after staring at them long enough. And if something does not work on your setup, I most likely wont able to fix it :D
+This is very much an experimental project. Things may work, things may break, and some things may work only after staring at them long enough. And if something does not work on your setup, I most likely won´t be able to fix it :D
 
 
 ### What works
