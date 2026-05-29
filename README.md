@@ -157,28 +157,7 @@ cc tools/va2000_spy.c -o va2000_spy
 
 ---
 
-## Key Technical Discoveries
 
-### K&R C parameter declarations
-
-In K&R C on 68k, each function parameter must be on its own declaration
-line. Grouped declarations cause 68k ABI stack misalignment:
-
-```c
-/* CORRECT: */
-unsigned short w;
-unsigned short h;
-
-/* WRONG: */
-unsigned short w, h;
-```
-
-### VA2000 registers are write-only from kernel
-
-Piccolo-driver (`/usr/sys/local/svga/exp`) uses the same direct write
-mechanism as our driver — no special cache-disable handling was found in
-disassembly. The exact reason VA2000 behaves differently from Piccolo
-in kernel context remains under investigation.
 
 ### mmap page calculation
 
