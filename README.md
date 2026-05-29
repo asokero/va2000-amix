@@ -113,28 +113,30 @@ install-va2000-driver.sh Experimental install script — copies driver and patch
 ### 1. Install the kernel driver
 
 Run the install script from `/usr/sys`. The script copies `va2000.c` and
-`va2000.h`, patches `scrdev.c`, `c0.c`, `screen.c`, and `master.d/kernel.c`,
-then prints rebuild instructions.
+`va2000.h`, patches `amiga/driver/Makefile`, `scrdev.c`, `c0.c`, `screen.c`,
+and `master.d/kernel.c`, then prints rebuild instructions.
 
 ```sh
 cd /usr/sys
 sh /path/to/install-va2000-driver.sh /path/to/va2000-amix
 ```
 
-### 2. Rebuild the kernel
+### 2. Create device node
 
-```sh
-make install
-sync && sync && sync && reboot
-```
-
-### 3. Create device node
-
-After booting the new kernel:
+This can be done before rebooting:
 
 ```sh
 mknod /dev/va2000 c 68 0
 chmod 666 /dev/va2000
+```
+
+### 3. Rebuild the kernel and reboot
+
+```sh
+cd /usr/sys
+make install
+sync; sync; sync
+reboot
 ```
 
 ### 4. VA2000 tools

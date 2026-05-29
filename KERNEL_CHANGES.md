@@ -159,24 +159,24 @@ void	(*io_init[])() = {
 	0};
 ```
 
-**Create the device node** after booting the new kernel:
+---
+
+## Rebuild Kernel
+
+Create the device node first (can be done before rebooting):
+
 ```sh
 mknod /dev/va2000 c 68 0
 chmod 666 /dev/va2000
 ```
 
----
-
-## Rebuild Kernel
-
-After making all changes (run from `/usr/sys`):
+Then rebuild and reboot:
 
 ```sh
-rm -f amiga/config/unix.o
-rm -f master.d/exp
-rm -f unix
+cd /usr/sys
 make install
-sync && sync && sync && reboot
+sync; sync; sync
+reboot
 ```
 
 ---
