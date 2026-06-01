@@ -12,7 +12,7 @@ question: *would it be possible to create a driver for a "modern" Amiga RTG card
 
 The motivation for this project is not world domination or achieving enlightenment
 through driver development. This exists mostly out of curiosity, and fascination
-to the forgotton and orscure Amiga Unix operating system. The goal is to explore,
+to the forgotton and obscure Amiga Unix operating system. The goal is to explore,
 and poke things with a stick, and see how far the combination of old
 hardware, old Unix, modern AI tools can go.
 
