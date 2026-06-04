@@ -128,7 +128,7 @@ unsigned long hz;
  * K&R: each parameter on its own line.
  */
 static void
-va2_set_mode(base, w, h, hss, hse, hmax, vss, vse, vmax, clk, colormode, pitch_w)
+va2_set_mode(base, w, h, hss, hse, hmax, vss, vse, vmax, clk, colormode, pitch_w, scalemode)
 long base;
 unsigned short w;
 unsigned short h;
@@ -141,6 +141,7 @@ unsigned short vmax;
 unsigned short clk;
 unsigned short colormode;
 unsigned short pitch_w;
+unsigned short scalemode;  /* (vscale<<2)|hscale; 0=1:1, 5=2x both */
 {
     VA2REG(base, VA2_H_SS)         = hss;
     VA2REG(base, VA2_H_SE)         = hse;
@@ -154,7 +155,7 @@ unsigned short pitch_w;
     VA2REG(base, VA2_PITCH_SHIFT)  = 9;
     VA2REG(base, VA2_SCREEN_W)     = w;
     VA2REG(base, VA2_SCREEN_H)     = h;
-    VA2REG(base, VA2_SCALEMODE)    = 0;
+    VA2REG(base, VA2_SCALEMODE)    = scalemode;
     VA2REG(base, VA2_SAFE_X2)      = 0x1e0;
     VA2REG(base, VA2_FETCH_PRE)    = 0x1e0;
     VA2REG(base, VA2_RAM_FETCH)    = 0x17;
@@ -350,6 +351,7 @@ int *rvalp;
     unsigned short sw;
     unsigned short va2clr;
     unsigned short va2clk;
+    unsigned short va2scale;
     unsigned short pitch_w;
     unsigned short w;
     unsigned short h;
@@ -416,14 +418,29 @@ int *rvalp;
         if (copyin((caddr_t)arg, (caddr_t)&sm, sizeof(sm)))
             return EFAULT;
 
-        /* This driver implements 16-bit only; hardware supports 8/16/32-bit */
-        va2clr  = VA2CLR_16BIT;
-        va2clk  = svga_pixclock_to_va2(sm.SVGASM_PixelClock);
-        pitch_w = sm.SVGASM_HDisplayEnd;
+        va2clk = svga_pixclock_to_va2(sm.SVGASM_PixelClock);
 
-        va2_set_mode(base,
-                     (unsigned short)sm.SVGASM_HDisplayEnd,
-                     (unsigned short)sm.SVGASM_VDisplayEnd,
+        if (sm.SVGASM_ColorMode == SVGACM_8BIT) {
+            va2clr  = VA2CLR_8BIT;
+            pitch_w = sm.SVGASM_HDisplayEnd / 2;  /* 2 pixels per 16-bit word */
+        } else {
+            va2clr  = VA2CLR_16BIT;
+            pitch_w = sm.SVGASM_HDisplayEnd;
+        }
+
+        /* apply 2x h+v pixel doubling for small modes (<=640x360) */
+        if (sm.SVGASM_VDisplayEnd <= 360 && sm.SVGASM_HDisplayEnd <= 640) {
+            w        = (unsigned short)(sm.SVGASM_HDisplayEnd * 2);
+            h        = (unsigned short)(sm.SVGASM_VDisplayEnd * 2);
+            if (h < 480) h = 480;
+            va2scale = 5;  /* (1<<2)|1: vscale=1, hscale=1 */
+        } else {
+            w        = (unsigned short)sm.SVGASM_HDisplayEnd;
+            h        = (unsigned short)sm.SVGASM_VDisplayEnd;
+            va2scale = 0;
+        }
+
+        va2_set_mode(base, w, h,
                      (unsigned short)sm.SVGASM_HSyncStart,
                      (unsigned short)sm.SVGASM_HSyncEnd,
                      (unsigned short)sm.SVGASM_HTotal,
@@ -432,12 +449,13 @@ int *rvalp;
                      (unsigned short)sm.SVGASM_VTotal,
                      (unsigned short)va2clk,
                      (unsigned short)va2clr,
-                     (unsigned short)pitch_w);
+                     (unsigned short)pitch_w,
+                     (unsigned short)va2scale);
 
         va2000_cur_w[mindev]     = sm.SVGASM_HDisplayEnd;
         va2000_cur_h[mindev]     = sm.SVGASM_VDisplayEnd;
         va2000_cur_pitch[mindev] = pitch_w * 2;
-        va2000_cur_bpp[mindev]   = 16;
+        va2000_cur_bpp[mindev]   = (sm.SVGASM_ColorMode == SVGACM_8BIT) ? 8 : 16;
         va2000_monitor_switch[mindev] = SVGAMONITORSWITCH_SVGA;
         break;
 
@@ -452,7 +470,7 @@ int *rvalp;
         sd.SVGASD_BitsPerPixel  = va2000_cur_bpp[mindev];
         sd.SVGASD_padding1      = 0;
         sd.SVGASD_padding2      = 0;
-        sd.SVGASD_Color         = (unsigned long)SVGACM_16BIT;
+        sd.SVGASD_Color         = (unsigned long)((va2000_cur_bpp[mindev] == 8) ? SVGACM_8BIT : SVGACM_16BIT);
         sd.SVGASD_reserved2[0]  = 0;
         sd.SVGASD_reserved2[1]  = 0;
         sd.SVGASD_reserved2[2]  = 0;
@@ -530,6 +548,23 @@ int *rvalp;
         break;
 
     case SVGAIOCSetRGB:
+        {
+            unsigned long buf[4];
+            unsigned long idx;
+            volatile unsigned short *preg;
+            if (copyin((caddr_t)arg, (caddr_t)buf, sizeof(buf)))
+                return EFAULT;
+            idx = buf[0];
+            if (idx < 256) {
+                /* R→0x200, G→0x400, B→0x600 (P96 channel mapping) */
+                preg  = (volatile unsigned short *)((char *)base + 0x200 + idx * 2);
+                *preg = (unsigned short)(buf[1] & 0xff);
+                preg  = (volatile unsigned short *)((char *)base + 0x400 + idx * 2);
+                *preg = (unsigned short)(buf[2] & 0xff);
+                preg  = (volatile unsigned short *)((char *)base + 0x600 + idx * 2);
+                *preg = (unsigned short)(buf[3] & 0xff);
+            }
+        }
         break;
 
     case SVGAIOCGetBorderColor:

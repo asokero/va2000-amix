@@ -16,7 +16,7 @@ to the forgotton and orscure Amiga Unix operating system. The goal is to explore
 and poke things with a stick, and see how far the combination of old
 hardware, old Unix, modern AI tools can go.
 
-This project builds on groundwork by Commodore Amix team, MNT Research, Klaus 
+This project builds on groundwork by Commodore Amix team, MNT Research, Klaus
 Burckert and his X11R5 package from Gateway Volume 2 CD and Cirrus Logic
 graphics card support.
 
@@ -50,7 +50,7 @@ A few things worth knowing before you proceed:
 
 ## Status (May 2026)
 
-**Tested on:** Amiga 3000, 68030, AMIX SVR4 2.1p2a, MNT VA2000 fw1.9.0b2
+**Tested on:** Amiga 3000, 68030, AMIX SVR4 2.1p2a, MNT VA2000 fw1.9.0b2 (Zorro II mode)
 
 ### Working
 
@@ -172,3 +172,5 @@ Not `phystopfn()` which was tried but did not improve behavior.
 ## License
 
 MIT License. See LICENSE file.
+
+-Antti Sokero 2026
