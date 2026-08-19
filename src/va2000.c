@@ -6,11 +6,25 @@
  * See LICENSE file in the repository root for details.
  *
  * Kernel character device: /dev/va2000 (major 68, minor 0)
- * Card: MNT VA2000, Zorro II, manufacturer 0x6D6E product 0x01
+ * Card: MNT VA2000, Zorro II or Zorro III, manufacturer 0x6D6E product 0x01
  *
- * VA2000 memory map:
- *   0x000000 - 0x00FFFF : registers (write-only from kernel context)
- *   0x010000 - 0x3FFFFF : framebuffer
+ * VA2000 memory map, relative to the AutoConfig base, in BOTH bus modes:
+ *   +0x000000 - +0x000FFF : registers (4 KiB)
+ *   +0x010000 - +size     : framebuffer
+ * The layout is the same because the firmware assigns it the same way in its
+ * CONFIGURED state; only the aperture SIZE differs -- 4 MB in Zorro II, 32 MB
+ * in Zorro III -- and it is read from AutoConfig, not assumed.
+ *
+ * ADDRESS AGNOSTIC (2026-08-19).  cd_BoardAddr is a PHYSICAL address, and on
+ * this machine only Zorro II space is transparently translated for the kernel;
+ * a Zorro III board at 0x40000000+ is inside the kernel's own virtual region,
+ * so dereferencing it directly does not fault -- it silently hits kernel
+ * memory.  So this driver keeps two bases: va2000_boards[] stays PHYSICAL
+ * because d_mmap must return a page frame number, and va2000_regs[] is what
+ * the CPU dereferences.  With -DVA2000_KVA (the 68040/68060 port) the latter
+ * is a real kernel mapping with an explicit noncacheable-serialised class;
+ * without it, on the vanilla 68030 kernel, the two are the same value and this
+ * driver behaves exactly as it always has.
  *
  * Registers are write-only from kernel context; reads return the
  * firmware version byte (0x5a for fw98).  RTG activation
@@ -39,9 +53,17 @@
 #include "va2000.h"
 
 #define VA2000_PRODUCT   0x6D6E0001UL
-#define VA2000_HWLEN     0x00400000UL
+#define VA2000_HWLEN     0x00400000UL   /* Zorro II aperture -- FALLBACK ONLY, used
+                                         * when AutoConfig reports an unusable size */
 #define VA2000_FB_OFFSET 0x00010000UL
 #define VA2000_FB_SIZE   (VA2000_HWLEN - VA2000_FB_OFFSET)
+#define VA2000_REGLEN    0x00001000UL   /* register window: 4 KiB in both bus modes.
+                                         * Every register this driver touches is below
+                                         * 0x800 (palette 0x600 + 255*2 = 0x7fe), so
+                                         * one page covers all of them. */
+#define VA2000_WINLEN    0x00010000UL   /* temporary window for read()/write(); see
+                                         * va2000rdwr() for why it is not the aperture */
+#define VA2000_CM_NCS    0x40           /* noncacheable, serialised: control registers */
 #define VA2000_FW_MIN    5
 #define VA2000_MAXBOARDS 2
 
@@ -87,8 +109,13 @@
 #define VA2CLK_40MHZ  1
 #define VA2CLK_100MHZ 3
 
-/* extern so scrdev.c can access va2000_boards[0] */
+/* extern so scrdev.c can access va2000_boards[0].  PHYSICAL base: d_mmap
+ * converts it to a page frame number, so it must NOT become a kernel VA. */
 long va2000_boards[VA2000_MAXBOARDS];
+/* Aperture size as reported by AutoConfig (4 MB Zorro II / 32 MB Zorro III). */
+long va2000_size[VA2000_MAXBOARDS];
+/* What the CPU dereferences for register access.  See the header comment. */
+static long va2000_regs[VA2000_MAXBOARDS];
 static int va2000_open_count[VA2000_MAXBOARDS];
 static unsigned short va2000_cur_w[VA2000_MAXBOARDS];
 static unsigned short va2000_cur_h[VA2000_MAXBOARDS];
@@ -96,6 +123,48 @@ static unsigned short va2000_cur_bpp[VA2000_MAXBOARDS];
 static unsigned short va2000_cur_pitch[VA2000_MAXBOARDS];
 static unsigned short va2000_monitor_switch[VA2000_MAXBOARDS];
 
+
+#ifdef VA2000_KVA
+/*
+ * Provided by the 68040/68060 port (src/devkvmap040.s), not by AMIX:
+ *   char *dev_kvmap(phys, nbytes, cm, flags)   -- map MMIO with an explicit
+ *                                                 cache class; NULL on failure
+ *   void  dev_kvunmap(kva, nbytes)             -- undo one dev_kvmap
+ * flags bit 0 = NOSLEEP.
+ */
+extern char *dev_kvmap();
+extern void dev_kvunmap();
+#endif
+
+/*
+ * va2000_map_regs() -- establish the CPU-usable register base for one board.
+ *
+ * Idempotent, and called before the first register access on every path that
+ * can be the first one (init, and open for a board discovered late).  The
+ * mapping is deliberately never released: a mapping can outlive the file
+ * descriptor that caused it, and one 4 KiB slot out of the kernel's virtual
+ * arena is not worth the lifetime problem that releasing it would create.
+ *
+ * Returns 1 if va2000_regs[dev] is usable afterwards, 0 otherwise.
+ */
+static int
+va2000_map_regs(dev)
+int dev;
+{
+    if (va2000_regs[dev]) return 1;
+    if (!va2000_boards[dev]) return 0;
+#ifdef VA2000_KVA
+    /* NOSLEEP: this runs from the kernel's io_init walker at boot. */
+    va2000_regs[dev] = (long)dev_kvmap(va2000_boards[dev], VA2000_REGLEN,
+                                       VA2000_CM_NCS, 1);
+    if (!va2000_regs[dev])
+        printf("va2000: cannot map registers at 0x%lx\n", va2000_boards[dev]);
+#else
+    /* Vanilla 68030 kernel: the board is in transparently translated space. */
+    va2000_regs[dev] = va2000_boards[dev];
+#endif
+    return va2000_regs[dev] ? 1 : 0;
+}
 
 static int
 va2000_present(base)
@@ -210,11 +279,13 @@ void
 va2000init()
 {
     int i;
-    long dummy;
+    long size;
     unsigned short fw;
 
     for (i = 0; i < VA2000_MAXBOARDS; i++) {
         va2000_boards[i]         = 0;
+        va2000_size[i]           = 0;
+        va2000_regs[i]           = 0;
         va2000_open_count[i]     = 0;
         va2000_cur_w[i]          = 0;
         va2000_cur_h[i]          = 0;
@@ -223,20 +294,35 @@ va2000init()
         va2000_monitor_switch[i] = SVGAMONITORSWITCH_Amiga;
     }
 
-    if (!autocon(VA2000_PRODUCT, 0, &va2000_boards[0], &dummy)) {
+    size = 0;
+    if (!autocon(VA2000_PRODUCT, 0, &va2000_boards[0], &size)) {
         printf("va2000: no board found\n");
         return;
     }
 
-    printf("va2000: board found at 0x%lx\n", va2000_boards[0]);
+    /* The aperture size comes from AutoConfig so that the same binary serves a
+     * 4 MB Zorro II board and a 32 MB Zorro III one.  Anything smaller than the
+     * register window plus one framebuffer page is not a size we can use, so
+     * fall back rather than compute a negative framebuffer. */
+    if (size < (long)(VA2000_FB_OFFSET + VA2000_REGLEN))
+        size = (long)VA2000_HWLEN;
+    va2000_size[0] = size;
 
-    if (!va2000_present(va2000_boards[0])) {
+    printf("va2000: board found at 0x%lx, aperture %ld KB\n",
+           va2000_boards[0], (long)(size >> 10));
+
+    if (!va2000_map_regs(0)) {
+        va2000_boards[0] = 0;
+        return;
+    }
+
+    if (!va2000_present(va2000_regs[0])) {
         printf("va2000: board not responding or firmware too old\n");
         va2000_boards[0] = 0;
         return;
     }
 
-    fw = VA2REG(va2000_boards[0], VA2_FW_VERSION);
+    fw = VA2REG(va2000_regs[0], VA2_FW_VERSION);
     printf("va2000: firmware version %d, ready\n", (int)fw);
 }
 
@@ -248,14 +334,20 @@ int type;
 struct cred *cr;
 {
     unsigned int dev;
-    long dummy;
+    long size;
 
     dev = getminor(*devp);
     if (dev >= VA2000_MAXBOARDS) return ENXIO;
-    if (!va2000_boards[dev] &&
-        !autocon(VA2000_PRODUCT, dev, &va2000_boards[dev], &dummy))
-        return ENXIO;
-    if (!va2000_present(va2000_boards[dev])) return ENXIO;
+    if (!va2000_boards[dev]) {
+        size = 0;
+        if (!autocon(VA2000_PRODUCT, dev, &va2000_boards[dev], &size))
+            return ENXIO;
+        if (size < (long)(VA2000_FB_OFFSET + VA2000_REGLEN))
+            size = (long)VA2000_HWLEN;
+        va2000_size[dev] = size;
+    }
+    if (!va2000_map_regs(dev)) return ENXIO;
+    if (!va2000_present(va2000_regs[dev])) return ENXIO;
     va2000_open_count[dev]++;
     return 0;
 }
@@ -272,14 +364,32 @@ struct cred *cr;
     if (mindev >= VA2000_MAXBOARDS) return ENXIO;
     if (va2000_open_count[mindev] > 0) {
         va2000_open_count[mindev]--;
-        if (va2000_open_count[mindev] == 0 && va2000_boards[mindev]) {
-            va2_restore_passthrough(va2000_boards[mindev]);
+        if (va2000_open_count[mindev] == 0 && va2000_regs[mindev]) {
+            va2_restore_passthrough(va2000_regs[mindev]);
             va2000_monitor_switch[mindev] = SVGAMONITORSWITCH_Amiga;
         }
     }
     return 0;
 }
 
+/*
+ * va2000rdwr() -- character read()/write() across the whole aperture.
+ *
+ * This is a compatibility path: X and the RTG clients use mmap(), and nothing
+ * in the tools tree reads or writes the device this way.  It is kept working
+ * rather than quietly dropped, because removing it would be a behaviour change
+ * nobody asked for.
+ *
+ * It must NOT be pointed at the permanent register mapping: that covers one
+ * 4 KiB page, and this path addresses the entire aperture -- up to 32 MB in
+ * Zorro III, which cannot be mapped permanently (the kernel's virtual arena is
+ * 4 MB in total, shared with the rest of the kernel).  So under -DVA2000_KVA it
+ * maps a bounded temporary window per chunk and releases it again.
+ *
+ * The window is mapped noncacheable-SERIALISED, which is the conservative
+ * class: correct everywhere, and it deliberately does not depend on the
+ * framebuffer cache-class work.  Revisit only with a measurement.
+ */
 static int
 va2000rdwr(dev, direction, uiop)
 int dev;
@@ -288,20 +398,42 @@ struct uio *uiop;
 {
     unsigned long n;
     unsigned long count;
+    unsigned long off;
     int error;
+#ifdef VA2000_KVA
+    char *kva;
+#endif
 
     if (!va2000_boards[dev]) return ENXIO;
     if ((count = uiop->uio_resid) == 0) return 0;
     if (uiop->uio_offset < 0 ||
-        uiop->uio_offset >= (long)VA2000_HWLEN) return ENXIO;
-    n = uiop->uio_offset + count;
-    if (n > VA2000_HWLEN) count = VA2000_HWLEN - uiop->uio_offset;
+        uiop->uio_offset >= (long)va2000_size[dev]) return ENXIO;
+    off = (unsigned long)uiop->uio_offset;
+    n = off + count;
+    if (n > (unsigned long)va2000_size[dev])
+        count = (unsigned long)va2000_size[dev] - off;
     if (direction == UIO_WRITE && count == 0) return ENXIO;
+#ifdef VA2000_KVA
+    while (count > 0) {
+        n = count;
+        if (n > VA2000_WINLEN) n = VA2000_WINLEN;
+        /* sleep is allowed here: this is syscall context, not io_init */
+        kva = dev_kvmap(va2000_boards[dev] + off, n, VA2000_CM_NCS, 0);
+        if (!kva) return ENOMEM;
+        error = uiomove(kva, n, direction, uiop);
+        dev_kvunmap(kva, n);
+        if (error) return error;
+        off += n;
+        count -= n;
+    }
+    return 0;
+#else
     if (error = uiomove(
-            (char *)(va2000_boards[dev]) + uiop->uio_offset,
+            (char *)(va2000_boards[dev]) + off,
             count, direction, uiop))
         return error;
     return 0;
+#endif
 }
 
 int
@@ -328,7 +460,9 @@ int maxprot;
     mindev = getminor(dev);
     if (mindev >= VA2000_MAXBOARDS) return -1;
     if (!va2000_boards[mindev]) return -1;
-    if (offset >= 0 && offset < (off_t)VA2000_HWLEN)
+    /* PHYSICAL on purpose: the VM builds the user mapping from this page frame
+     * number.  Bounded by the AutoConfig aperture, not by a compile-time 4 MB. */
+    if (offset >= 0 && offset < (off_t)va2000_size[mindev])
         return (int)((va2000_boards[mindev] + offset) >> 11);
     return -1;
 }
@@ -357,9 +491,9 @@ int *rvalp;
     unsigned short h;
 
     mindev = getminor(dev);
-    if (mindev >= VA2000_MAXBOARDS || !va2000_boards[mindev])
+    if (mindev >= VA2000_MAXBOARDS || !va2000_regs[mindev])
         return ENXIO;
-    base = va2000_boards[mindev];
+    base = va2000_regs[mindev];    /* register access only -- never for mmap */
 
     switch (cmd) {
 
@@ -381,7 +515,7 @@ int *rvalp;
 
     case SVGAIOCGetBoardData:
         bd.SVGABD_CardID       = SVGACARDID_VA2000;
-        bd.SVGABD_FrameBufSize = (long)VA2000_FB_SIZE;
+        bd.SVGABD_FrameBufSize = va2000_size[mindev] - (long)VA2000_FB_OFFSET;
         bd.SVGABD_MaxPixClk    = 100;
         bd.SVGABD_HasBlitter   = 1;
         bd.SVGABD_HasPanning   = 1;
@@ -397,7 +531,7 @@ int *rvalp;
         break;
 
     case SVGAIOCGetFBufSize:
-        *rvalp = (int)VA2000_FB_SIZE;
+        *rvalp = (int)(va2000_size[mindev] - (long)VA2000_FB_OFFSET);
         break;
 
     case SVGAIOCGetMonitorSwitch:
