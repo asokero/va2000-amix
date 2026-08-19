@@ -158,7 +158,7 @@ int dev;
     va2000_regs[dev] = (long)dev_kvmap(va2000_boards[dev], VA2000_REGLEN,
                                        VA2000_CM_NCS, 1);
     if (!va2000_regs[dev])
-        printf("va2000: cannot map registers at 0x%lx\n", va2000_boards[dev]);
+        printf("va2000: cannot map registers at 0x%x\n", va2000_boards[dev]);
 #else
     /* Vanilla 68030 kernel: the board is in transparently translated space. */
     va2000_regs[dev] = va2000_boards[dev];
@@ -308,8 +308,15 @@ va2000init()
         size = (long)VA2000_HWLEN;
     va2000_size[0] = size;
 
-    printf("va2000: board found at 0x%lx, aperture %ld KB\n",
-           va2000_boards[0], (long)(size >> 10));
+    /* %x / %d, not %lx / %ld: this kernel's printf does not implement the `l`
+     * length modifier -- it drops the %l and prints the conversion character
+     * literally, so "0x%lx" came out as "0xx" with no value at all.  Measured
+     * on the emulator 2026-08-19.  long and int are both 32 bits here, so %x
+     * prints these correctly.  (The 0x%lx in this line predates the Zorro III
+     * work and had the same defect; it was never noticed because nobody needed
+     * the address until the address became the bug.) */
+    printf("va2000: board found at 0x%x, aperture %d KB\n",
+           va2000_boards[0], (int)(size >> 10));
 
     if (!va2000_map_regs(0)) {
         va2000_boards[0] = 0;
