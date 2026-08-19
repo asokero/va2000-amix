@@ -131,9 +131,15 @@ static unsigned short va2000_monitor_switch[VA2000_MAXBOARDS];
  *                                                 cache class; NULL on failure
  *   void  dev_kvunmap(kva, nbytes)             -- undo one dev_kvmap
  * flags bit 0 = NOSLEEP.
+ *
+ *   int hat_cm_fb_add(lo_pfn, hi_pfn)          -- register a half-open frame
+ *                                                 buffer PFN interval; the pages
+ *                                                 in it are mapped noncacheable
+ *                                                 but NOT serialised.  1 = done.
  */
 extern char *dev_kvmap();
 extern void dev_kvunmap();
+extern int hat_cm_fb_add();
 #endif
 
 /*
@@ -144,6 +150,14 @@ extern void dev_kvunmap();
  * mapping is deliberately never released: a mapping can outlive the file
  * descriptor that caused it, and one 4 KiB slot out of the kernel's virtual
  * arena is not worth the lifetime problem that releasing it would create.
+ *
+ * It also registers this board's framebuffer with the kernel's cache-class
+ * selector, and that has to happen HERE rather than later: the interval must be
+ * installed before the device can be opened or mapped, i.e. before any first
+ * fault on it, and it must then stay put.  It is never unregistered -- see the
+ * ownership contract at hat_cm_fb_add.
+ *
+ * Requires va2000_size[dev] to be set already; both callers do that first.
  *
  * Returns 1 if va2000_regs[dev] is usable afterwards, 0 otherwise.
  */
@@ -157,10 +171,22 @@ int dev;
     /* NOSLEEP: this runs from the kernel's io_init walker at boot. */
     va2000_regs[dev] = (long)dev_kvmap(va2000_boards[dev], VA2000_REGLEN,
                                        VA2000_CM_NCS, 1);
-    if (!va2000_regs[dev])
+    if (!va2000_regs[dev]) {
         printf("va2000: cannot map registers at 0x%x\n", va2000_boards[dev]);
+        return 0;
+    }
+    /* Framebuffer pages get the noncacheable-but-not-serialised class; the
+     * register page stays outside the interval and keeps the serialised one,
+     * which is what a control register needs.  phystopfn() rather than a
+     * literal shift: the Model-B header set is what makes it 4 KiB here, and
+     * that is the mechanism that exists to stop this class of bug. */
+    if (!hat_cm_fb_add(phystopfn(va2000_boards[dev] + VA2000_FB_OFFSET),
+                       phystopfn(va2000_boards[dev]
+                                 + (unsigned long)va2000_size[dev])))
+        printf("va2000: framebuffer cache class NOT registered\n");
 #else
-    /* Vanilla 68030 kernel: the board is in transparently translated space. */
+    /* Vanilla 68030 kernel: the board is in transparently translated space, and
+     * there is no cache-class selector to register a framebuffer with. */
     va2000_regs[dev] = va2000_boards[dev];
 #endif
     return va2000_regs[dev] ? 1 : 0;
