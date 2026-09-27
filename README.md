@@ -34,8 +34,8 @@ recovery procedures, but these are not a substitute for a proper backup.
 
 A few things worth knowing before you proceed:
 
-- This has been tested on one specific machine (Amiga 3000, 68030, AMIX
-  2.1p2a) with one specific VA2000 firmware version. Other configurations
+- This has been tested on one specific machine (Amiga 3000, AMIX 2.1p2a) with
+  two VA2000 firmware versions, Zorro II and Zorro III. Other configurations
   may behave differently.
 - The kernel driver patches are applied to vanilla AMIX 2.1 source files.
   If your installation has already been modified — for example by Klaus
@@ -50,7 +50,8 @@ A few things worth knowing before you proceed:
 
 ## Status (May 2026)
 
-**Tested on:** Amiga 3000, 68030, AMIX SVR4 2.1p2a, MNT VA2000 fw1.9.0b2 (Zorro II mode)
+**Tested on:** Amiga 3000, AMIX SVR4 2.1p2a — 68030 with fw1.9.0b2 in Zorro II mode,
+68060 with the Zorro III firmware
 
 ### Working
 
@@ -69,11 +70,12 @@ A few things worth knowing before you proceed:
 
 ## Hardware Requirements
 
-- Amiga with Zorro II slots (tested on Amiga 3000, 68030)
+- Amiga with Zorro II or Zorro III slots (tested on Amiga 3000)
 - MNT VA2000 graphics card, firmware 1.9.0 beta 2 or later
-  - Zorro II mode, 4MB
+  - Either Zorro II or Zorro III firmware. The driver reads the board address
+    and aperture size from AutoConfig, so the same binary serves both
+    (4 MB in Zorro II, 32 MB in Zorro III)
   - Manufacturer ID: 0x6D6E, Product ID: 0x01
-  - Board address: typically 0x600000
 - Amiga UNIX (AMIX) System V Release 4.0, version 2.1p2a
 
 ### Tested Display Modes
