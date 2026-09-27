@@ -1,0 +1,8 @@
+# One person, two addresses.  Commits made on the work machine carry the opinsys address because
+# that is what git config held there; the canonical identity for this project is the gmail one,
+# which is also what the 68040/68060 port's issue-number blocks are keyed on.
+#
+# This file remaps for display only -- git log, git shortlog, git blame and most forges read it.
+# History is NOT rewritten: three of these commits are cited by hash in the project
+# correspondence, and a rewrite would make those citations wrong for a cosmetic gain.
+Antti Sokero <antti.sokero@gmail.com> <asokero@opinsys.fi>
