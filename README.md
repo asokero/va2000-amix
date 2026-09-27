@@ -50,8 +50,11 @@ A few things worth knowing before you proceed:
 
 ## Status (May 2026)
 
-**Tested on:** Amiga 3000, AMIX SVR4 2.1p2a — 68030 with fw1.9.0b2 in Zorro II mode,
-68060 with the Zorro III firmware
+**Tested on:** Amiga 3000, AMIX SVR4 2.1p2a.
+Zorro III firmware: 68060 (2026-08-19) and 68040 (2026-09-07), both on the 68040/68060 port kernel.
+Zorro II, fw1.9.0b2, 68030: tested before the Zorro III work. That path is unchanged here — without
+`VA2000_KVA` the register base is the AutoConfig address exactly as before — but it has not been
+re-run on this version.
 
 ### Working
 
