@@ -62,7 +62,7 @@ re-run on this version.
 - **Board detection** via `autocon()` at boot time
 - **Register access** via `open()` and `read()`
 - **Framebuffer mmap** — direct pixel access from user space
-- **Display mode setting** — 800x600 16-bit, 1024x768, 1280x720 confirmed
+- **Display mode setting** — 800x600 16-bit, 1024x768, 1280x720 confirmed also 8-bit modes are now supported
 - **Passthrough control** — switch between Amiga native and RTG mode
 - **CPU pixel fill** — direct framebuffer writes
 - **Hardware blitter** — fast rectangle fill confirmed working
