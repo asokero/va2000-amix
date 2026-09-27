@@ -1,0 +1,12 @@
+# Local assistant instructions.  Deliberately not distributed: the file describes one person's
+# bench rather than the driver -- the test machine's address on a home network and how root logs
+# in to it -- which is operating detail a reader of this repository neither needs nor can use.
+# It is ignored rather than cleaned up and committed, because the next machine's copy will say
+# something equally local.
+CLAUDE.md
+
+# Build output.  The driver is compiled on the AMIX guest and not here, so nothing in this tree
+# produces these today -- they are listed because a build done in place is the obvious next thing
+# somebody tries, and an untracked object file is exactly what `git add -A` sweeps in unnoticed.
+*.o
+*.a
