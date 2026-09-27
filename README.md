@@ -48,7 +48,7 @@ A few things worth knowing before you proceed:
 
 --- 
 
-## Status (May 2026)
+## Status (September 2026)
 
 **Tested on:** Amiga 3000, AMIX SVR4 2.1p2a.
 Zorro III firmware: 68060 (2026-08-19) and 68040 (2026-09-07), both on the 68040/68060 port kernel.
@@ -66,8 +66,17 @@ re-run on this version.
 - **Passthrough control** — switch between Amiga native and RTG mode
 - **CPU pixel fill** — direct framebuffer writes
 - **Hardware blitter** — fast rectangle fill confirmed working
+- **Zorro III** — address-agnostic: the register base is a kernel mapping with an explicit
+  cache class, and the aperture size comes from AutoConfig (4 MB Zorro II, 32 MB Zorro III)
 
-### Known Issues
+### Known issues
+
+- Reading the whole framebuffer in one pass (`xwd -root` at 1280x720) wedged the machine twice
+  out of two attempts on a Zorro III board. Cause not attributed and the driver is not
+  implicated; see ISSUE-70 in the 68040/68060 port.
+- Byte-width register access is untested. Every access this driver makes is an aligned 16-bit
+  store. The one time byte writes did reach a Zorro III register window — from a kernel
+  write-back replay, not from here — the odd byte was refused.
 
 ---
 
