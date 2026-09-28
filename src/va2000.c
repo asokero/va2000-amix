@@ -116,7 +116,6 @@ long va2000_boards[VA2000_MAXBOARDS];
 long va2000_size[VA2000_MAXBOARDS];
 /* What the CPU dereferences for register access.  See the header comment. */
 static long va2000_regs[VA2000_MAXBOARDS];
-static int va2000_open_count[VA2000_MAXBOARDS];
 static unsigned short va2000_cur_w[VA2000_MAXBOARDS];
 static unsigned short va2000_cur_h[VA2000_MAXBOARDS];
 static unsigned short va2000_cur_bpp[VA2000_MAXBOARDS];
@@ -313,7 +312,6 @@ va2000init()
         va2000_boards[i]         = 0;
         va2000_size[i]           = 0;
         va2000_regs[i]           = 0;
-        va2000_open_count[i]     = 0;
         va2000_cur_w[i]          = 0;
         va2000_cur_h[i]          = 0;
         va2000_cur_bpp[i]        = 16;
@@ -382,7 +380,6 @@ struct cred *cr;
     }
     if (!va2000_map_regs(dev)) return ENXIO;
     if (!va2000_present(va2000_regs[dev])) return ENXIO;
-    va2000_open_count[dev]++;
     return 0;
 }
 
@@ -396,12 +393,27 @@ struct cred *cr;
     unsigned int mindev;
     mindev = getminor(dev);
     if (mindev >= VA2000_MAXBOARDS) return ENXIO;
-    if (va2000_open_count[mindev] > 0) {
-        va2000_open_count[mindev]--;
-        if (va2000_open_count[mindev] == 0 && va2000_regs[mindev]) {
-            va2_restore_passthrough(va2000_regs[mindev]);
-            va2000_monitor_switch[mindev] = SVGAMONITORSWITCH_Amiga;
-        }
+    /*
+     * ISSUE-72.  There used to be an open counter here, incremented in va2000open and
+     * decremented before this test.  It could not work: SVR4 calls a character driver's
+     * close on the LAST close of the device, not once per file, so the increment was per
+     * open() and the decrement was per device and the two never paired.  Any program that
+     * opened /dev/va2000 while another held it open raised the count for good, `== 0` was
+     * never true again, and the Amiga video was never restored again until reboot --
+     * measured on 2026-09-28: `kill -9` on the X server left the RTG picture stuck and the
+     * count read 8.
+     *
+     * So the counter is deleted rather than repaired.  This entry point IS the event it was
+     * trying to detect, and nothing needs counting to know that.
+     *
+     * The one case this does not serve is a client that closes its fd while keeping the
+     * mmap: it would have its picture taken away.  No client on this card does that --
+     * Xrtg, va2000_test and va2000_restest all hold the descriptor for as long as they hold
+     * the mapping, which is what made the count reach 8 rather than stay at 0.
+     */
+    if (va2000_regs[mindev]) {
+        va2_restore_passthrough(va2000_regs[mindev]);
+        va2000_monitor_switch[mindev] = SVGAMONITORSWITCH_Amiga;
     }
     return 0;
 }
