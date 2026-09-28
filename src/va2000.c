@@ -121,6 +121,32 @@ static unsigned short va2000_cur_w[VA2000_MAXBOARDS];
 static unsigned short va2000_cur_h[VA2000_MAXBOARDS];
 static unsigned short va2000_cur_bpp[VA2000_MAXBOARDS];
 static unsigned short va2000_cur_pitch[VA2000_MAXBOARDS];
+
+/*
+ * The last modeline set through SVGAIOCSetScreenMode, per board.
+ *
+ * Kept because going native is destructive: va2_restore_passthrough() overwrites every
+ * timing register with its own 640x480 set, so a later switch back to RTG cannot be
+ * CAPTURE_MODE alone -- that would show the framebuffer under passthrough timing.  The
+ * four va2000_cur_* values above are what SVGAIOCGetScreenData reports; these are what
+ * the card needs to be told again.
+ */
+struct va2_modeline {
+    unsigned short valid;
+    unsigned short w;
+    unsigned short h;
+    unsigned short hss;
+    unsigned short hse;
+    unsigned short hmax;
+    unsigned short vss;
+    unsigned short vse;
+    unsigned short vmax;
+    unsigned short clk;
+    unsigned short colormode;
+    unsigned short pitch_w;
+    unsigned short scalemode;
+};
+static struct va2_modeline va2000_mode[VA2000_MAXBOARDS];
 static unsigned short va2000_monitor_switch[VA2000_MAXBOARDS];
 
 
@@ -574,11 +600,56 @@ int *rvalp;
         break;
 
     case SVGAIOCSetMonitorSwitch:
+        /*
+         * Drive the card, do not just remember the value.
+         *
+         * Until 2026-09-28 this stored `sw` and commented that userspace does the work.
+         * That made the VA2000 claim an interface it did not implement: the X server's
+         * device-independent layer has no other way to ask a card for native video, and a
+         * card that answers by setting a variable answers nothing.  Agreed with the driver
+         * line 2026-09-28 as the one seam every RTG driver implements its own way -- this
+         * card in registers, a Piccolo in its own routine, a card with no passthrough on a
+         * CIA line.
+         *
+         * CAPTURE_MODE is the hardware's own sense of it: 1 captures the Amiga signal
+         * (native), 0 shows the card's framebuffer (RTG).  va2_set_mode() ends with 0 and
+         * va2_restore_passthrough() ends with 1; SVGAIOCBlankScreen already drives the same
+         * register directly.
+         *
+         * NOT PROVEN ON HARDWARE.  The note at va2_set_mode() says RTG activation needs a
+         * userspace mmap write first, so whether SVGA here brings the picture back on its
+         * own is the thing to measure.  The Amiga direction is the same call the close path
+         * has been making for weeks, so that half is exercised.
+         */
         if (copyin((caddr_t)arg, (caddr_t)&sw, sizeof(sw)))
             return EFAULT;
+        if (sw == SVGAMONITORSWITCH_Amiga) {
+            va2_restore_passthrough(base);
+        } else if (sw == SVGAMONITORSWITCH_SVGA) {
+            if (va2000_mode[mindev].valid) {
+                va2_set_mode(base,
+                             va2000_mode[mindev].w,
+                             va2000_mode[mindev].h,
+                             va2000_mode[mindev].hss,
+                             va2000_mode[mindev].hse,
+                             va2000_mode[mindev].hmax,
+                             va2000_mode[mindev].vss,
+                             va2000_mode[mindev].vse,
+                             va2000_mode[mindev].vmax,
+                             va2000_mode[mindev].clk,
+                             va2000_mode[mindev].colormode,
+                             va2000_mode[mindev].pitch_w,
+                             va2000_mode[mindev].scalemode);
+            } else {
+                /* No mode has been set on this board yet, so there is nothing to restore.
+                 * Show the framebuffer under whatever timing is loaded rather than refuse:
+                 * the caller asked for RTG and a mode set is its next move anyway. */
+                VA2REG(base, VA2_CAPTURE_MODE) = 0;
+            }
+        } else {
+            return EINVAL;
+        }
         va2000_monitor_switch[mindev] = sw;
-        /* RTG activation handled by userspace - kernel writes
-         * do not activate VA2000 hardware */
         break;
 
     case SVGAIOCSetScreenMode:
@@ -618,6 +689,20 @@ int *rvalp;
                      (unsigned short)va2clr,
                      (unsigned short)pitch_w,
                      (unsigned short)va2scale);
+
+        va2000_mode[mindev].valid     = 1;
+        va2000_mode[mindev].w         = w;
+        va2000_mode[mindev].h         = h;
+        va2000_mode[mindev].hss       = (unsigned short)sm.SVGASM_HSyncStart;
+        va2000_mode[mindev].hse       = (unsigned short)sm.SVGASM_HSyncEnd;
+        va2000_mode[mindev].hmax      = (unsigned short)sm.SVGASM_HTotal;
+        va2000_mode[mindev].vss       = (unsigned short)sm.SVGASM_VSyncStart;
+        va2000_mode[mindev].vse       = (unsigned short)sm.SVGASM_VSyncEnd;
+        va2000_mode[mindev].vmax      = (unsigned short)sm.SVGASM_VTotal;
+        va2000_mode[mindev].clk       = va2clk;
+        va2000_mode[mindev].colormode = va2clr;
+        va2000_mode[mindev].pitch_w   = pitch_w;
+        va2000_mode[mindev].scalemode = va2scale;
 
         va2000_cur_w[mindev]     = sm.SVGASM_HDisplayEnd;
         va2000_cur_h[mindev]     = sm.SVGASM_VDisplayEnd;
